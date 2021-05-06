@@ -1,0 +1,97 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: my-connect
+  labels:
+    strimzi.io/cluster: my-cluster
+spec:
+  authentication:
+    type: tls
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kafkaconnectbuild-pull-secret
+type: kubernetes.io/dockerconfigjson
+stringData:
+  .dockerconfigjson: <TODO>
+
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnect
+metadata:
+  name: my-connect
+  annotations:
+    strimzi.io/use-connector-resources: "true"
+spec:
+  replicas: 1
+  resources:
+    requests:
+      memory: 1Gi
+      cpu: 500m
+    limits:
+      memory: 2Gi
+      cpu: 1000m
+  bootstrapServers: my-cluster-kafka-bootstrap:9093
+  config:
+    key.converter: org.apache.kafka.connect.storage.StringConverter
+    value.converter: org.apache.kafka.connect.storage.StringConverter
+    key.converter.schemas.enable: false
+    value.converter.schemas.enable: false
+    config.providers: file
+    config.providers.file.class: org.apache.kafka.common.config.provider.FileConfigProvider
+  tls:
+    trustedCertificates:
+      - secretName: my-cluster-cluster-ca-cert
+        certificate: ca.crt
+  authentication:
+    type: tls
+    certificateAndKey:
+      secretName: my-connect
+      certificate: user.crt
+      key: user.key
+  build:
+    resources:
+      requests:
+        memory: 128Mi
+        cpu: 500m
+      limits:
+        memory: 1Gi
+        cpu: 1000m
+    output:
+      type: docker
+      image: <TODO>
+      pushSecret: kafkaconnectbuild-pull-secret
+    plugins:
+      - name: echo-sink-connector
+        artifacts:
+          - type: jar
+            url: https://github.com/scholzj/echo-sink/releases/download/1.2.0/echo-sink-1.2.0.jar
+            sha512sum: d7240e854ee97a266e65716f963ea7559b678aacc428fbee2d3765dd9500020d71878e0b454dece36ca8130e182389a67928ed2af8ebbcd0dfaf4ca364a7fdef
+          - type: jar
+            url: https://raw.githubusercontent.com/scholzj/echo-sink/master/LICENSE
+      - name: camel-telegram-kafka-connector
+        artifacts:
+          - type: tgz
+            url: https://repo.maven.apache.org/maven2/org/apache/camel/kafkaconnector/camel-telegram-kafka-connector/0.7.0/camel-telegram-kafka-connector-0.7.0-package.tar.gz
+            sha512sum: a9b1ac63e3284bea7836d7d24d84208c49cdf5600070e6bd1535de654f6920b74ad950d51733e8020bf4187870699819f54ef5859c7846ee4081507f48873479
+      - name: debezium-postgres-connector
+        artifacts:
+          - type: tgz
+            url: https://repo1.maven.org/maven2/io/debezium/debezium-connector-postgres/1.3.1.Final/debezium-connector-postgres-1.3.1.Final-plugin.tar.gz
+            sha512sum: 962a12151bdf9a5a30627eebac739955a4fd95a08d373b86bdcea2b4d0c27dd6e1edd5cb548045e115e33a9e69b1b2a352bee24df035a0447cb820077af00c03
+---
+
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnector
+metadata:
+  name: echo-sink-connector
+  labels:
+    strimzi.io/cluster: my-connect
+spec:
+  class: EchoSink
+  tasksMax: 3
+  config:
+    level: "INFO"
+    topics: "kafka-test-apps"
